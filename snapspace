@@ -1,0 +1,88 @@
+#!/bin/bash
+
+function format_data ()
+{
+    local amount="$1"
+    local suffixes=(" " "K" "M" "G" "T" "P" "E" "Z" "Y")
+    local testnum="$amount"
+    local divisor="1"
+    local suffix=""
+    for ((index = 0; index < ${#suffixes[@]}; ++index))
+    do
+        suffix="${suffixes[$index]}"
+        testnum=`echo "$amount/($divisor)" | bc`
+        if ((testnum < 1000))
+        then
+            break
+        fi
+        divisor="$divisor*1024"
+    done
+    local prespace="  "
+    if ((testnum >= 100))
+    then
+        prespace=""
+    else
+        if ((testnum >= 10))
+        then
+            prespace=" "
+        fi
+    fi
+    if [[ "$divisor" == "1" ]]
+    then
+        #don't use bc for non-fractional cases
+        local displaydata="$amount   "
+    else
+        local displaydata=`echo "scale = 2; $amount/($divisor)" | bc -l`
+        #we switch at 1000, not 1024, so check for having no digit before decimal point
+        if [[ "$displaydata" == .* ]]
+        then
+            #because leading zero behavor is unspecified in bc
+            displaydata=0"$displaydata"
+        fi
+    fi
+    echo "$prespace$displaydata$suffix"
+}
+
+if (($# < 1))
+then
+    echo "usage: $0 <filesystem>"
+    exit 1
+fi
+if [[ "$1" == *@* || "$1" == /* ]]
+then
+    echo "Snapshots and paths are not supported"
+    echo "usage: $0 <filesystem>"
+    exit 1
+fi
+echo -e "SNAPSHOT                                    OLDREFS   UNIQUE    UNIQUE%"
+fullref=`zfs get -Hp referenced "$1" | awk '{print $3}'`
+for snap in `zfs list -Hd 1 -t snapshot -o name "$1" | cut -f2- -d@`
+do
+    snapref=`zfs get -Hp referenced "$1"@"$snap" | awk '{print $3}'`
+    snapwritten=`zfs get -Hp written@"$snap" "$1" | awk '{print $3}'`
+    olddata=$((snapref + snapwritten - fullref))
+    snapusedraw=`zfs get -Hp used "$1"@"$snap" | awk '{print $3}'`
+    chars=`echo "$snap" | wc -m | awk '{print $1}'`
+    if ((olddata > 0))
+    then
+        displaypercent=`echo "100*$snapusedraw/$olddata" | bc`
+    else
+        displaypercent=0
+    fi
+    if ((displaypercent < 100))
+    then
+        if ((displaypercent >= 10))
+        then
+            displaypercent=" $displaypercent"
+        else
+            displaypercent="  $displaypercent"
+        fi
+    fi
+    spacing=""
+    while ((++chars < 44))
+    do
+        spacing="$spacing "
+    done
+    echo -e "$snap $spacing `format_data $olddata`   `format_data $snapusedraw`   $displaypercent%"
+done
+
