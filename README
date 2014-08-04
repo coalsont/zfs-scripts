@@ -3,7 +3,7 @@ zfs-scripts
 
 some useful scripts related to zfs
 
-snapspace takes a filesystem as an argument, and reports how much data referenced by this snapshot is not in the current filesystem (as OLDREFS), the amount of that data that exists only in this snapshot (as UNIQUE, equal to the zfs "used" property), and the percentage of the old data that this unique data represents
+snapspace takes a filesystem as an argument, and reports how much data referenced by this snapshot is not in the filesystem (as OLDREFS), the amount of that data that exists only in this snapshot (as UNIQUE, equal to the zfs "used" property), and the percentage of the old data that this unique data represents.
 
 Sample output:
 
@@ -15,7 +15,7 @@ zfs-auto-snap_monthly-2014-07-09-17h09      676.68G    14.37G     2%
 zfs-auto-snap_weekly-2014-07-16-17h09       714.96G    35.35G     4%
 ...
 
-snapreport takes a snapshot with filesystem as an argument, and shows the breakdown of ONLY the data added between this snapshot and the next, arranged by which snapshot it was deleted immediately after ("unique" meaning deleted before the next remaining snapshot was taken, and "active" meaning has not been deleted)
+snapreport takes a snapshot with filesystem as an argument, and shows ONLY the data in this snapshot that the previous snapshot doesn't contain (if this is the oldest snapshot, all data in the snapshot), and for each snapshot (and the filesystem) that shares some of this data, it displays how much data is shared up to that snapshot and no further, suppressing lines with a zero value for other snapshots (but uses "unique" to mean "deleted before the next snapshot", and "active" to mean "has not been deleted").
 
 Sample output:
 
