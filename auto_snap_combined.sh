@@ -42,7 +42,7 @@ function defaults()
     #this is overridden by the remainder of "$module:schedule", ie, third and later
     #hourly
     schedule[0]=3600
-    #keep 23
+    #keep 23 (the 24th hour is within the frequents range)
     schedule[1]=23
     #daily
     schedule[2]=$(( schedule[0] * 24 ))
@@ -54,8 +54,8 @@ function defaults()
     schedule[5]=3
     #quasi-monthly, 4 weeks - this script does NOT readjust weekly/monthly based on day of month, unlike time-slider
     schedule[6]=$(( schedule[4] * 4 ))
-    #keep 11
-    schedule[7]=11
+    #keep 12 (28 * 13 = 364)
+    schedule[7]=12
     
     #sanity check schedule
     if (( ${#schedule[@]} % 2 == 1 ))
