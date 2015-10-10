@@ -7,6 +7,7 @@ snapspace takes a filesystem as an argument, and reports how much data reference
 
 Sample output:
 
+$ snapspace mainpool/storage
 SNAPSHOT                                    OLDREFS   UNIQUE    UNIQUE%
 zfs-auto-snap_monthly-2014-05-09-17h07        8.53T     8.51T    99%
 zfs-auto-snap_monthly-2014-06-09-17h07      368.94G   341.41G    92%
@@ -19,6 +20,7 @@ snapreport takes a snapshot with filesystem as an argument, and shows ONLY the d
 
 Sample output:
 
+$ snapreport mainpool/storage@zfs-auto-snap_monthly-2014-05-09-17h07
 ENDING SNAPSHOT                             SIZE
 unique                                        8.51T
 zfs-auto-snap_monthly-2014-06-09-17h07       23.03G
