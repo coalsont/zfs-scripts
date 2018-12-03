@@ -1,11 +1,23 @@
 #!/bin/bash
 
+#don't use u, because empty array causing unbound error is annoying to deal with
+set -e
+
+#debugging, used for zfs snapshot and destroy commands
+dryrun=0
+ignore_output=1
+verbose=0
+
 #check for zfs in path, if not, add expected path
-which zfs > /dev/null
-if [[ $? != 0 ]]
+
+if ! which zfs > /dev/null
 then
     PATH="/usr/sbin:$PATH"
 fi
+
+#name of the "module" part of the user property to get extra config info from
+#use "$module:prevent" with "snapshot" and/or "destroy" somewhere in the string to prevent the script from doing that operation
+module="auto-snap"
 
 function defaults()
 {
@@ -17,10 +29,6 @@ function defaults()
     #date format to use normally, and a second format to use if it fails to take a snapshot because it already exists (usually due to daylight savings or other timezone change)
     dateformat="%Y-%m-%d-%H:%M"
     preexistformat="$dateformat%z"
-    
-    #name of the "module" part of the user property to get extra config info from
-    #use "$module:prevent" with "snapshot" and/or "destroy" somewhere in the string to prevent the script from doing that operation
-    module="auto-snap"
     
     #take snapshots even if there are no changes since last automatic snapshot
     #value taken from "$module:keep-empty" if it is "true" or "false"
@@ -57,7 +65,19 @@ function defaults()
     #keep 12 (28 * 13 = 364)
     schedule[7]=12
     
-    #sanity check schedule
+    #sanity check defaults
+    if ! [[ "$wiggle" =~ ^-?[0-9]+$ ]]
+    then
+        echo "error in defaults:" 1>&2
+        echo "invalid value for wiggle (first element of $module:schedule): '$wiggle'" 1>&2
+        exit 1
+    fi
+    if ! [[ "$initoffset" =~ ^-?[0-9]+$ ]]
+    then
+        echo "error in defaults:" 1>&2
+        echo "invalid value for initoffset (second element of $module:schedule): '$initoffset'" 1>&2
+        exit 1
+    fi
     if (( ${#schedule[@]} % 2 == 1 ))
     then
         echo "error in defaults:" 1>&2
@@ -82,11 +102,31 @@ function defaults()
     done
 }
 
+
+function run_wrap()
+{
+    if (( dryrun ))
+    then
+        echo "dryrun: $*"
+    else
+        if (( verbose ))
+        then
+            echo "running: $*"
+        fi
+        if (( ignore_output ))
+        then
+            "$@" &> /dev/null || true
+        else
+            "$@"
+        fi
+    fi
+}
+
 function do_filesystem()
 {
     if [[ $# != 1 ]]
     then
-        echo "internal error: do_filesystem called without argument" 1>&2
+        echo "internal error: do_filesystem should be called with only one argument" 1>&2
         exit 1
     fi
     
@@ -100,14 +140,53 @@ function do_filesystem()
     #so, expect at least 3 commas in it - wiggle, offset, first interval, first num to keep
     if [[ "$confstring" == *,*,*,* ]]
     then
-        #if we fail to get settings from the string, exit with error, do not try to continue
         #these reads will succeed because we know 3 commas exist
-        read wiggle offset < <(echo "$confstring" | cut -f1-2 -d, | tr , ' ')
-        read -a schedule < <(echo "$confstring" | cut -f3- -d, | tr , ' ')
+        read newwiggle newinitoffset < <(echo "$confstring" | cut -f1-2 -d, | tr , ' ')
+        read -a newschedule < <(echo "$confstring" | cut -f3- -d, | tr , ' ')
+        #sanity check configuration - defaults function self-checks
+        if ! [[ "$newwiggle" =~ ^-?[0-9]+$ ]]
+        then
+            echo "error in custom schedule of $filesystem:" 1>&2
+            echo "invalid value for wiggle (first element of $module:schedule): '$wiggle'" 1>&2
+            exit 1
+        fi
+        if ! [[ "$newinitoffset" =~ ^-?[0-9]+$ ]]
+        then
+            echo "error in custom schedule of $filesystem:" 1>&2
+            echo "invalid value for initoffset (second element of $module:schedule): '$initoffset'" 1>&2
+            exit 1
+        fi
+        if (( ${#newschedule[@]} % 2 == 1 ))
+        then
+            echo "error in custom schedule of $filesystem:" 1>&2
+            echo "$module:schedule has an odd number of elements" 1>&2
+            exit 1
+        fi
+        if (( ${#newschedule[@]} < 2 ))
+        then
+            echo "error in custom schedule of $filesystem:" 1>&2
+            echo "$module:schedule must have at least 4 elements" 1>&2
+            exit 1
+        fi
+        local i
+        for (( i = 0; i < ${#newschedule[@]}; ++i ))
+        do
+            if ! [[ ${newschedule[$i]} =~ ^-?[0-9]+$ ]]
+            then
+                echo "error in custom schedule of $filesystem:" 1>&2
+                echo "found noninteger in $module:schedule: ${schedule[$i]}" 1>&2
+                exit 1
+            fi
+        done
+        
+        wiggle=$newwiggle
+        initoffset=$newinitoffset
+        schedule=("${newschedule[@]}")
     else
         if [[ "$confstring" != "-" ]]
         then
             echo "warning: unrecognized value '$confstring' for $module:schedule (expected integers separated by commas) in filesystem $filesystem"
+            echo "using default settings"
         fi
     fi
     
@@ -126,42 +205,6 @@ function do_filesystem()
             fi
         fi
     fi
-    
-    #sanity check configuration - defaults function self-checks, so an error points to the zfs attribute
-    if ! [[ "$wiggle" =~ ^-?[0-9]+$ ]]
-    then
-        echo "error in custom schedule of $filesystem:" 1>&2
-        echo "invalid value for wiggle (first element of $module:schedule): '$wiggle'" 1>&2
-        exit 1
-    fi
-    if ! [[ "$initoffset" =~ ^-?[0-9]+$ ]]
-    then
-        echo "error in custom schedule of $filesystem:" 1>&2
-        echo "invalid value for initoffset (second element of $module:schedule): '$initoffset'" 1>&2
-        exit 1
-    fi
-    if (( ${#schedule[@]} % 2 == 1 ))
-    then
-        echo "error in custom schedule of $filesystem:" 1>&2
-        echo "$module:schedule has an odd number of elements" 1>&2
-        exit 1
-    fi
-    if (( ${#schedule[@]} < 2 ))
-    then
-        echo "error in custom schedule of $filesystem:" 1>&2
-        echo "$module:schedule must have at least 4 elements" 1>&2
-        exit 1
-    fi
-    local i
-    for (( i = 0; i < ${#schedule[@]}; ++i ))
-    do
-        if ! [[ ${schedule[$i]} =~ ^-?[0-9]+$ ]]
-        then
-            echo "error in custom schedule of $filesystem:" 1>&2
-            echo "found noninteger in $module:schedule: ${schedule[$i]}" 1>&2
-            exit 1
-        fi
-    done
     
     #do cleanup before snapshot in case most recent snapshot gets destroyed due to keep-empty and a very inactive filesystem
     #otherwise, between runs there will be changes since last snapshot, despite last snapshot being older than the frequent range
@@ -212,8 +255,7 @@ function do_filesystem()
                 do
                     if (( snaptimes[i] - prevsnaptime + wiggle < schedule[interindex] ))
                     then
-                        #redirect destroy output in case there are holds
-                        pfexec zfs destroy "$filesystem@${snaps[$i]}" &> /dev/null
+                        run_wrap pfexec zfs destroy "$filesystem@${snaps[$i]}"
                     else
                         local prevsnaptime=$(( snaptimes[i] ))
                     fi
@@ -232,7 +274,7 @@ function do_filesystem()
         then
             while (( startsnap < ${#snaps[@]} ))
             do
-                pfexec zfs destroy "$filesystem@${snaps[$startsnap]}" &> /dev/null
+                run_wrap pfexec zfs destroy "$filesystem@${snaps[$startsnap]}"
                 local startsnap=$(( startsnap + 1 ))
             done
         fi
@@ -246,17 +288,17 @@ function do_filesystem()
             local latest=`zfs list -H -t snapshot -d 1 -o name -S creation "$filesystem" | cut -f2- -d@ |grep "^$grepprefix" |  head -n 1`
             if [[ $latest == "" || `zfs get -Hp written@"$latest" "$filesystem" | cut -f3` != 0 || `zfs get -Hp used "$filesystem@$latest" | cut -f3` != 0 ]]
             then
-                pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"` &> /dev/null
+                run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
                 if [[ $? != 0 ]]
                 then
-                    pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"` &> /dev/null
+                    run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"`
                 fi
             fi
         else
-            pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"` &> /dev/null
+            run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
             if [[ $? != 0 ]]
             then
-                pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"` &> /dev/null
+                run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"`
             fi
         fi
     fi
