@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#don't use u, because empty array causing unbound error is annoying to deal with
+#don't use u, because unset error from intentionally empty array is annoying to deal with
 set -e
 
 #debugging, used for zfs snapshot and destroy commands
@@ -34,6 +34,8 @@ function defaults()
     #value taken from "$module:keep-empty" if it is "true" or "false"
     keepempty=1
     
+    #below variables set the snapshot schedule, and are overridden by a comma-separated list in "$module:schedule", as specified
+    
     #the following attributes are overridden by the comma separated list in the value of "$module:schedule"
     #if snapshot time difference is within this number of SECONDS of being kept, keep it to allow for variance in when the script gets around to examining the filesystem
     #this is the first element in "$module:schedule"
@@ -43,6 +45,8 @@ function defaults()
     #that is, all auto snapshots younger than schedule[0] + offset + wiggle SECONDS will be kept
     #this is the second element in "$module:schedule"
     initoffset=-120
+    
+    #the remainder of "$module:schedule" is used as the $schedule array, which is variable length, with an even number of elements
     
     #forget any previous modified schedule
     unset schedule
@@ -115,7 +119,7 @@ function run_wrap()
         fi
         if (( ignore_output ))
         then
-            "$@" &> /dev/null || true
+            "$@" &> /dev/null
         else
             "$@"
         fi
@@ -255,7 +259,7 @@ function do_filesystem()
                 do
                     if (( snaptimes[i] - prevsnaptime + wiggle < schedule[interindex] ))
                     then
-                        run_wrap pfexec zfs destroy "$filesystem@${snaps[$i]}"
+                        run_wrap pfexec zfs destroy "$filesystem@${snaps[$i]}" || true
                     else
                         local prevsnaptime=$(( snaptimes[i] ))
                     fi
@@ -274,7 +278,7 @@ function do_filesystem()
         then
             while (( startsnap < ${#snaps[@]} ))
             do
-                run_wrap pfexec zfs destroy "$filesystem@${snaps[$startsnap]}"
+                run_wrap pfexec zfs destroy "$filesystem@${snaps[$startsnap]}" || true
                 local startsnap=$(( startsnap + 1 ))
             done
         fi
@@ -288,26 +292,21 @@ function do_filesystem()
             local latest=`zfs list -H -t snapshot -d 1 -o name -S creation "$filesystem" | cut -f2- -d@ |grep "^$grepprefix" |  head -n 1`
             if [[ $latest == "" || `zfs get -Hp written@"$latest" "$filesystem" | cut -f3` != 0 || `zfs get -Hp used "$filesystem@$latest" | cut -f3` != 0 ]]
             then
-                run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
-                if [[ $? != 0 ]]
+                if ! run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
                 then
-                    run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"`
+                    run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"` || true
                 fi
             fi
         else
-            run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
-            if [[ $? != 0 ]]
+            if ! run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
             then
-                run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"`
+                run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"` || true
             fi
         fi
     fi
 }
 
 #BEGIN RUNALL
-
-#source the defaults, for the module name and nothing else
-defaults
 
 readarray -t filesystems < <(zfs list -H -t filesystem,volume -o name)
 for (( i = 0; i < ${#filesystems[@]}; ++i ))
