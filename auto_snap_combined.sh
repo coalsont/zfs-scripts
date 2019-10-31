@@ -39,12 +39,12 @@ function defaults()
     #the following attributes are overridden by the comma separated list in the value of "$module:schedule"
     #if snapshot time difference is within this number of SECONDS of being kept, keep it to allow for variance in when the script gets around to examining the filesystem
     #this is the first element in "$module:schedule"
-    wiggle=60
+    wiggle=120
     
     #use initoffset if you want more of the "frequent" snapshots than is accounted for by schedule[0]
     #that is, all auto snapshots younger than schedule[0] + offset + wiggle SECONDS will be kept
     #this is the second element in "$module:schedule"
-    initoffset=-120
+    initoffset=-240
     
     #the remainder of "$module:schedule" is used as the $schedule array, which is variable length, with an even number of elements
     
