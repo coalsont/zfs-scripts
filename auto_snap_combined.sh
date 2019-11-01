@@ -210,6 +210,16 @@ function do_filesystem()
         fi
     fi
     
+    local keepsincestring=$(zfs get -Hp "$module:keep-since" "$filesystem" | cut -f3)
+    local keepsincetime=-1
+    if [[ "$keepsincestring" != "-" ]]
+    then
+        if ! keepsincetime=$(zfs get -Hp creation "$filesystem@$keepsincestring" 2>/dev/null | cut -f3)
+        then
+            keepsincetime=-1
+        fi
+    fi
+    
     #when keepempty=0, do snapshot *after* cleanup, see below
     #when keepempty=1, take snapshot first to reduce jitter
     if [[ $keepempty == 1 ]]
@@ -234,11 +244,12 @@ function do_filesystem()
         #use readarray to keep whitespace intact, if someone decided to use it in snapshots or prefix
         readarray -t allsnaps < <(zfs list -H -t snapshot -d 1 -o name -S creation "$filesystem" | cut -f2- -d@ | grep "^$grepprefix")
         #ignore all snapshots in the frequent interval, and collect snapshot creation timestamps
+        #also ignore snapshots after the specified one, inclusive
         for (( i = 0; i < ${#allsnaps[@]}; ++i ))
         do
             local snap="${allsnaps[$i]}"
             local snaptime=`zfs get -Hp creation "$filesystem@$snap" | cut -f3`
-            if [[ $snaptime == "" ]] || (( curtime - snaptime < schedule[0] + initoffset + wiggle ))
+            if [[ $snaptime == "" ]] || (( curtime - snaptime < schedule[0] + initoffset + wiggle )) || ((keepsincetime >= 0 && snaptime >= keepsincetime))
             then
                 continue
             fi
