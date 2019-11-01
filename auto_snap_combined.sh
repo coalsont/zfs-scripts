@@ -210,9 +210,20 @@ function do_filesystem()
         fi
     fi
     
-    #do cleanup before snapshot in case most recent snapshot gets destroyed due to keep-empty and a very inactive filesystem
-    #otherwise, between runs there will be changes since last snapshot, despite last snapshot being older than the frequent range
-
+    #when keepempty=0, do snapshot *after* cleanup, see below
+    #when keepempty=1, take snapshot first to reduce jitter
+    if [[ $keepempty == 1 ]]
+    then
+        #snapshot if it isn't in the prevent attribute - redirect output of zfs snapshot so that existing ones attempted due to daylight savings or other time adjustments produce no warning
+        if [[ `zfs get -Hp "$module:prevent" "$filesystem" | cut -f3` != *snapshot* ]]
+        then
+            if ! run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
+            then
+                run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"` || true
+            fi
+        fi
+    fi
+    
     #clean up old snaps if destroy isn't in the prevent attribute - this goes by creation time, which is in seconds since epoch, daylight savings/time zone has no effect, though UTC adjustments will
     if [[ `zfs get -Hp "$module:prevent" "$filesystem" | cut -f3` != *destroy* ]]
     then
@@ -284,10 +295,12 @@ function do_filesystem()
         fi
     fi
     
-    #snapshot if it isn't in the prevent attribute - redirect output of zfs snapshot so that existing ones attempted due to daylight savings or other time adjustments produce no output
-    if [[ `zfs get -Hp "$module:prevent" "$filesystem" | cut -f3` != *snapshot* ]]
+    #when keepempty=0, do cleanup before snapshot in case most recent snapshot gets destroyed due to a very inactive filesystem
+    #otherwise, it will take until next run to realize the filesystem has changes since the oldest surviving snapshot
+    if [[ $keepempty == 0 ]]
     then
-        if [[ $keepempty == 0 ]]
+        #snapshot if it isn't in the prevent attribute - redirect output of zfs snapshot so that existing ones attempted due to daylight savings or other time adjustments produce no warning
+        if [[ `zfs get -Hp "$module:prevent" "$filesystem" | cut -f3` != *snapshot* ]]
         then
             local latest=`zfs list -H -t snapshot -d 1 -o name -S creation "$filesystem" | cut -f2- -d@ |grep "^$grepprefix" |  head -n 1`
             if [[ $latest == "" || `zfs get -Hp written@"$latest" "$filesystem" | cut -f3` != 0 || `zfs get -Hp used "$filesystem@$latest" | cut -f3` != 0 ]]
@@ -296,11 +309,6 @@ function do_filesystem()
                 then
                     run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"` || true
                 fi
-            fi
-        else
-            if ! run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$dateformat"`
-            then
-                run_wrap pfexec zfs snapshot "$filesystem@$prefix"`date +"$preexistformat"` || true
             fi
         fi
     fi
