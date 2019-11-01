@@ -322,7 +322,8 @@ do
     enablestring=`zfs get -Hp "$module:enable" "${filesystems[$i]}" | cut -f3`
     if [[ "$enablestring" == "true" ]]
     then
-        do_filesystem "${filesystems[$i]}"
+        do_filesystem "${filesystems[$i]}" &
     fi
 done
 
+wait
