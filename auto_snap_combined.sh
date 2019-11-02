@@ -214,7 +214,8 @@ function do_filesystem()
     local keepsincetime=-1
     if [[ "$keepsincestring" != "-" ]]
     then
-        if ! keepsincetime=$(zfs get -Hp creation "$filesystem@$keepsincestring" 2>/dev/null | cut -f3)
+        keepsincetime=$(zfs get -Hp creation "$filesystem@$keepsincestring" 2>/dev/null | cut -f3)
+        if [[ "$keepsincetime" == "" ]]
         then
             keepsincetime=-1
         fi
