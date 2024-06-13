@@ -3,17 +3,17 @@ zfs-scripts
 
 some useful scripts related to zfs
 
-snapspace takes a filesystem as an argument, and reports how much data referenced by this snapshot is not in the filesystem (as OLDREFS), the amount of that data that exists only in this snapshot (as UNIQUE, equal to the zfs "used" property), and the percentage of the old data that this unique data represents.
+snapspace takes a filesystem as an argument, and reports how much data referenced by each snapshot is not in the filesystem (as OLDREFS), the amount of that data that exists only in this snapshot (as UNIQUE, equal to the zfs "used" property), and the percentage of the old data that this unique data represents.
 
 Sample output:
 
 $ snapspace mainpool/storage
-SNAPSHOT                                    OLDREFS   UNIQUE    UNIQUE%
-zfs-auto-snap_monthly-2014-05-09-17h07        8.53T     8.51T    99%
-zfs-auto-snap_monthly-2014-06-09-17h07      368.94G   341.41G    92%
-zfs-auto-snap_weekly-2014-07-07-17h07       677.10G    14.67G     2%
-zfs-auto-snap_monthly-2014-07-09-17h09      676.68G    14.37G     2%
-zfs-auto-snap_weekly-2014-07-16-17h09       714.96G    35.35G     4%
+ OLDREFS   UNIQUE  UNIQUE%   SNAPSHOT
+  8.53T     8.51T      99%   zfs-auto-snap_monthly-2014-05-09-17h07
+368.94G   341.41G      92%   zfs-auto-snap_monthly-2014-06-09-17h07
+677.10G    14.67G       2%   zfs-auto-snap_weekly-2014-07-07-17h07
+676.68G    14.37G       2%   zfs-auto-snap_monthly-2014-07-09-17h09
+714.96G    35.35G       4%   zfs-auto-snap_weekly-2014-07-16-17h09
 ...
 
 snapreport takes a snapshot with filesystem as an argument, and shows ONLY the data in this snapshot that the previous snapshot doesn't contain (if this is the oldest snapshot, all data in the snapshot), and for each snapshot (and the filesystem) that shares some of this data, it displays how much data is shared up to that snapshot and no further, suppressing lines with a zero value for other snapshots (but uses "unique" to mean "deleted before the next snapshot", and "active" to mean "has not been deleted").
@@ -21,12 +21,12 @@ snapreport takes a snapshot with filesystem as an argument, and shows ONLY the d
 Sample output:
 
 $ snapreport mainpool/storage@zfs-auto-snap_monthly-2014-05-09-17h07
-ENDING SNAPSHOT                             SIZE
-unique                                        8.51T
-zfs-auto-snap_monthly-2014-06-09-17h07       23.03G
-zfs-auto-snap_weekly-2014-07-07-17h07       338.59M
-zfs-auto-snap_monthly-2014-07-09-17h09        1.11G
-zfs-auto-snap_weekly-2014-07-16-17h09       914.56M
+  SIZE    ENDING SNAPSHOT
+  8.51T   unique
+ 23.03G   zfs-auto-snap_monthly-2014-06-09-17h07
+338.59M   zfs-auto-snap_weekly-2014-07-07-17h07
+  1.11G   zfs-auto-snap_monthly-2014-07-09-17h09
+914.56M   zfs-auto-snap_weekly-2014-07-16-17h09
 ...
 
 auto_snap_combined.sh is the script to be run from cron for an auto-snapshot system.  It looks through all zfs filesystems for ones with a zfs user attribute set ("auto-snap:enable") to indicate that it should be used on it.  Among other things, it checks for "auto-snap:prevent" containing the strings "snapshot" or "destroy", and if found, it will not perform that zfs operation - this way, it can take new snapshots while a zfs send is in progress, without generating errors from trying to destroy snapshots used in the zfs send.  It is also useful on the zfs receive side of a backup in order to clean up old snapshots without creating new ones.  It also supports per-filesystem schedules via a zfs user attribute ("auto-snap:schedule", read the defaults function for details), though it is somewhat arcane, and the most frequent interval is set by the frequency of the cron job.  The default schedule (in the defaults function) is frequents (cron schedule) for an hour, hourly for a day, daily for a week, weekly for 28 days, and one per 28 days for about a year (364 days).  The time to destroy an old snapshot is determined by the closest older snapshot matching the snapshot naming pattern used by the script (default "auto-snap-<datetime>"), so the snapshots do not have a hard lifetime at creation.  If you keep empty snapshots (default in the defaults function is true, attribute "auto-snap:keep-empty" controls it per-filesystem), you can move the hour or weekday that survive for a filesystem by manually destroying some snapshots that would have been kept as daily or weekly.

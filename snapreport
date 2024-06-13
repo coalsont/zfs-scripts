@@ -7,6 +7,7 @@ function format_data ()
     local testnum="$amount"
     local divisor="1"
     local suffix=""
+    #bash arithmetic uses 64bit, so use bc
     for ((index = 0; index < ${#suffixes[@]}; ++index))
     do
         suffix="${suffixes[$index]}"
@@ -64,87 +65,56 @@ then
     exit 1
 fi
 latersnaps=`echo "$allsnaps" | tail -n +$((position + 1))`
+
+#unique
 if ((position > 1))
 then
-    #we have, and must account for, previous snapshots
     prevsnap=`echo "$allsnaps" | tail -n +$((position - 1)) | head -n 1`
+    #we have, and must account for, previous snapshots
     remaining[0]=`zfs get -Hp written@"$prevsnap" "$filesystem"@"$mysnap" | awk '{print $3}'`
-    names[0]="unique"
-    index=1
-    for snap in $latersnaps
-    do
-        prevwritten=`zfs get -Hp written@"$prevsnap" "$filesystem"@"$snap" | awk '{print $3}'`
-        snapwritten=`zfs get -Hp written@"$mysnap" "$filesystem"@"$snap" | awk '{print $3}'`
-        remaining[$index]=$((prevwritten - snapwritten))
-        names[$index]="$snap"
-        index=$((index + 1))
-    done
-    prevwritten=`zfs get -Hp written@"$prevsnap" "$filesystem" | awk '{print $3}'`
-    curwritten=`zfs get -Hp written@"$mysnap" "$filesystem" | awk '{print $3}'`
-    remaining[$index]=$((prevwritten - curwritten))
-    names[$index]="active"
-    end=$index
-    index=0
-    echo "ENDING SNAPSHOT                             SIZE"
-    while ((index < end))
-    do
-        amount=$((remaining[index] - remaining[index + 1]))
-        if ((amount != 0))
-        then
-            chars=`echo "${names[$index]}" | wc -m | awk '{print $1}'`
-            spacing=""
-            while ((++chars < 44))
-            do
-                spacing="$spacing "
-            done
-            echo "${names[$index]} $spacing `format_data $amount`"
-        fi
-        index=$((index + 1))
-    done
-    amount=${remaining[$end]}
-    if ((amount != 0))
-    then
-        echo "active                                      `format_data $amount`"
-    fi
 else
-    #no previous snapshot, the referenced property provides the number we want (ie, assume a previous snapshot of zero usage)
+    #no previous snapshot, the referenced property provides the number we want (ie, assume a "previous snapshot" of zero usage)
     remaining[0]=`zfs get -Hp referenced "$filesystem"@"$mysnap" | awk '{print $3}'`
-    names[0]="unique"
-    index=1
-    for snap in $latersnaps
-    do
+fi
+names[0]="unique"
+
+#other snaps
+index=1
+for snap in $latersnaps
+do
+    if ((position > 1))
+    then
+        prevwritten=`zfs get -Hp written@"$prevsnap" "$filesystem"@"$snap" | awk '{print $3}'`
+    else
         prevwritten=`zfs get -Hp referenced "$filesystem"@"$snap" | awk '{print $3}'`
-        snapwritten=`zfs get -Hp written@"$mysnap" "$filesystem"@"$snap" | awk '{print $3}'`
-        remaining[$index]=$((prevwritten - snapwritten))
-        names[$index]="$snap"
-        index=$((index + 1))
-    done
+    fi
+    snapwritten=`zfs get -Hp written@"$mysnap" "$filesystem"@"$snap" | awk '{print $3}'`
+    remaining[index]=$((prevwritten - snapwritten))
+    names[index]="$snap"
+    index=$((index + 1))
+done
+
+#data not yet snapshotted
+if ((position > 1))
+then
+    prevwritten=`zfs get -Hp written@"$prevsnap" "$filesystem" | awk '{print $3}'`
+else
     prevwritten=`zfs get -Hp referenced "$filesystem" | awk '{print $3}'`
-    curwritten=`zfs get -Hp written@"$mysnap" "$filesystem" | awk '{print $3}'`
-    remaining[$index]=$((prevwritten - curwritten))
-    names[$index]="active"
-    end=$index
-    index=0
-    echo "ENDING SNAPSHOT                             SIZE"
-    while ((index < end))
-    do
-        amount=$((remaining[index] - remaining[index + 1]))
-        if ((amount != 0))
-        then
-            chars=`echo "${names[$index]}" | wc -m | awk '{print $1}'`
-            spacing=""
-            while ((++chars < 44))
-            do
-                spacing="$spacing "
-            done
-            echo "${names[$index]} $spacing `format_data $amount`"
-        fi
-        index=$((index + 1))
-    done
-    amount=${remaining[$end]}
+fi
+curwritten=`zfs get -Hp written@"$mysnap" "$filesystem" | awk '{print $3}'`
+remaining[index]=$((prevwritten - curwritten))
+#allow the display loop to report the "active" line, rather than as a special case
+remaining[index + 1]=0
+names[index]="active"
+end=$index
+
+echo "  SIZE    ENDING SNAPSHOT"
+for ((index = 0; index <= end; ++index))
+do
+    amount=$((remaining[index] - remaining[index + 1]))
     if ((amount != 0))
     then
-        echo "active                                      `format_data $amount`"
+        echo "$(format_data $amount)   ${names[$index]}"
     fi
-fi
+done
 
