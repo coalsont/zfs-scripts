@@ -55,7 +55,7 @@ then
     exit 1
 fi
 #check that the filesystem is valid
-if ! zfs list "$1" > /dev/null
+if ! zfs get referenced "$1" > /dev/null
 then
     #zfs will have printed an error message, so just exit
     exit 1
