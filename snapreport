@@ -44,6 +44,23 @@ function format_data ()
     echo "$prespace$displaydata$suffix"
 }
 
+#check dependencies - awk and cut are generally installed by the base OS, but hey
+utfail=0
+utilities=(bc zfs awk cut)
+for ut in "${utilities[@]}"
+do
+    if ! type "$ut" &> /dev/null
+    then
+        echo "This script requires the utility '$ut', please install it" 1>&2
+        utfail=1
+    fi
+done
+if ((utfail))
+then
+    exit 1
+fi
+
+#check arguments
 if (($# < 1))
 then
     echo "usage: $0 <filesystem>@<snapshot>"
@@ -53,21 +70,6 @@ if [[ "$1" != ?*@* || "$1" == /* ]]
 then
     echo "Input must be a snapshot with filesystem name"
     echo "usage: $0 <filesystem>@<snapshot>"
-    exit 1
-fi
-#check dependencies - awk and cut are generally installed by the base OS, but hey
-utfail=0
-utilities=(bc zfs awk cut)
-for ut in "${utilities[@]}"
-do
-    if ! which "$ut" > /dev/null
-    then
-        echo "This script requires the utility '$ut', please install it" 1>&2
-        utfail=1
-    fi
-done
-if ((utfail))
-then
     exit 1
 fi
 
